@@ -1,0 +1,4 @@
+project: PROJECT
+target: net_fuzzer
+cmds:
+- cmd: /out/net_fuzzer
