@@ -1,37 +1,30 @@
-# Copyright 2021 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-################################################################################
+FROM ubuntu:22.04
 
-FROM gcr.io/oss-fuzz-base/base-builder
+ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y autoconf automake libtool ninja-build
+# Install prerequisites for Nix and build
+RUN apt-get update && apt-get install -y \
+    curl \
+    xz-utils \
+    git \
+    sudo \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Protobuf for C++ as the version in the base-builder repos may
-# be outdated.
-RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v3.18.1/protobuf-cpp-3.18.1.tar.gz
-RUN tar xf protobuf-cpp-3.18.1.tar.gz
-WORKDIR $SRC/protobuf-3.18.1
-# Build statically
-RUN ./configure --disable-shared
-RUN make -j $(nproc)
-RUN make install
+# Install Nix (single-user mode)
+RUN curl -L https://nixos.org/nix/install | sh -s -- --no-daemon
 
-WORKDIR $SRC
-COPY . SockFuzzer
-RUN rm -rf SockFuzzer/mayhem
-COPY mayhem/build.sh $SRC
+ENV PATH="/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:${PATH}"
+ENV NIX_PATH="nixpkgs=channel:nixos-unstable"
 
-ENV FUZZING_LANGUAGE=c SANITIZER=address
-RUN compile
+# Copy source
+COPY . /src/SockFuzzer
+WORKDIR /src/SockFuzzer
+
+# Use the Nix flake to build
+RUN . /root/.nix-profile/etc/profile.d/nix.sh && \
+    nix --extra-experimental-features "nix-command flakes" develop --command bash -c \
+    "bazel build //fuzz/target:xnu_fuzzer_asan_opt 2>&1 | tail -20" && \
+    cp bazel-bin/fuzz/target/xnu_fuzzer_asan_opt /xnu_fuzzer
+
+ENTRYPOINT ["/xnu_fuzzer"]
