@@ -1,0 +1,2 @@
+# Stub BUILD file — frontend sources not included in this fork/build
+exports_files(["package.json", "pnpm-lock.yaml"])
